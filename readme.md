@@ -15,7 +15,7 @@ Ready for
 Setup
 -----
 
-1. Create AWS account with VPC and Subnets
+1. Create AWS account with VPC and Subnets and EC2 Key Pair
 2. Run build\Package.bat and upload generated webPackage.zip to an S3 bucket
 3. In CloudFormation, create stack using cloudformation.json (enter all parameters or update defaults in json)
 
