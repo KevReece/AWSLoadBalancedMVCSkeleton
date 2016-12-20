@@ -1,0 +1,344 @@
+{
+    "Description": "Example Stack",
+    "AWSTemplateFormatVersion": "2010-09-09",
+    "Parameters" : {
+        "VpcIdParameter" : {
+            "Type" : "String",
+            "Default" : "vpc-1111111",
+            "Description" : "VPC Id"
+        },
+        "AvailabilityZonesParameter" : {
+            "Type" : "CommaDelimitedList",
+            "Default" : "eu-west-1a,eu-west-1b,eu-west-1c",
+            "Description" : "Availability zones"
+        },
+        "SubnetIdsParameter" : {
+            "Type" : "CommaDelimitedList",
+            "Default" : "subnet-1111111,subnet-2222222,subnet-3333333",
+            "Description" : "Subnet Ids"
+        },
+        "AmiImageIdParameter" : {
+            "Type" : "String",
+            "Default" : "ami-771b4504",
+            "Description" : "AMI image Id"
+        },
+        "InstanceTypeParameter" : {
+            "Type" : "String",
+            "Default" : "t2.micro",
+            "Description" : "Instance type"
+        },
+        "KeyPairName" : {
+            "Type" : "String",
+            "Default" : "ExampleKeyPair",
+            "Description" : "Key pair name"
+        },
+        "CodeDeployRevisionS3BucketParameter" : {
+            "Type" : "String",
+            "Default" : "my-bucket",
+            "Description" : "CodeDeploy revision S3 bucket"
+        },
+        "CodeDeployRevisionS3BucketKeyParameter" : {
+            "Type" : "String",
+            "Default" : "webPackage.zip",
+            "Description" : "CodeDeploy revision S3 bucket key"
+        },
+        "InstanceRootFolderParameter" : {
+            "Type" : "String",
+            "Default" : "c:\\ExampleApp",
+            "Description" : "Instance root folder"
+        }
+    },
+    "Resources" : {
+        "AutoScalingGroup" : {
+            "Type" : "AWS::AutoScaling::AutoScalingGroup",
+            "Properties" : {
+                "AvailabilityZones" : { "Ref" : "AvailabilityZonesParameter" },
+                "LaunchConfigurationName" : { "Ref" : "LaunchConfiguration" },
+                "MinSize" : "1",
+                "MaxSize" : "4",
+                "DesiredCapacity" : "2",
+                "TargetGroupARNs" : [ { "Ref" : "LoadBalancerTargetGroup" } ],
+                "HealthCheckType" : "ELB",
+                "HealthCheckGracePeriod" : 1800,
+                "Tags" : [ { 
+                        "Key" : "Name", 
+                        "Value" : { "Ref": "AWS::StackName" },
+                        "PropagateAtLaunch" : "true" 
+                    }
+                ]
+            },
+            "CreationPolicy": {
+                "ResourceSignal": {
+                    "Count": "2",
+                    "Timeout": "PT30M"
+                }
+            }
+        },
+        "LaunchConfiguration" : {
+            "Type" : "AWS::AutoScaling::LaunchConfiguration",
+            "Properties" : {
+                "ImageId" : { "Ref" : "AmiImageIdParameter" },
+                "SecurityGroups" : [ { "Ref" : "IntstanceSecurityGroup" } ],
+                "InstanceType" : { "Ref" : "InstanceTypeParameter" },
+                "KeyName" : { "Ref" : "KeyPairName" },
+                "IamInstanceProfile": { "Ref": "InstanceRoleInstanceProfile" },
+                "UserData": {
+					"Fn::Base64": {
+						"Fn::Join": ["", [
+                                "<script>\n", 
+                                "mkdir ", { "Ref": "InstanceRootFolderParameter" }, "\n", 
+                                "mkdir ", { "Ref": "InstanceRootFolderParameter" }, "\\startup\n", 
+                                "c:\\\"Program Files\"\\Amazon\\cfn-bootstrap\\cfn-init.exe -s ", { "Ref": "AWS::StackName" }, " ",
+                                "--region ", { "Ref": "AWS::Region" }, " ",
+                                "-r LaunchConfiguration ",
+                                "> ", { "Ref": "InstanceRootFolderParameter" }, "\\startup\\cfn-init.log 2>&1", 
+                                "</script>"
+                            ]
+                        ]
+					}
+                }
+            },
+			"Metadata": {
+				"AWS::CloudFormation::Init": {
+					"config": {
+						"commands": {
+							"01-install-iis": {
+								"command": {
+									"Fn::Join": ["", [
+                                            "powershell.exe \"",
+                                            "Import-Module -Name ServerManager; ",
+                                            "Install-WindowsFeature Web-Server; ",
+                                            "Add-WindowsFeature -Name Web-Common-Http,Web-Asp-Net,Web-Net-Ext,Web-ISAPI-Ext,Web-ISAPI-Filter,Web-Http-Logging,Web-Request-Monitor,Web-Basic-Auth,Web-Windows-Auth,Web-Filtering,Web-Performance,Web-Mgmt-Console,Web-Mgmt-Compat,WAS,Web-Asp-Net45,Web-Net-Ext45 -IncludeAllSubFeature\" ",
+                                            "> ", { "Ref": "InstanceRootFolderParameter" }, "\\startup\\01-install-iis.log"
+                                        ]
+                                    ]
+								},
+								"waitAfterCompletion": 0
+							},
+							"02-download-host-agent": {
+								"command": {
+									"Fn::Join": ["", [
+                                            "powershell.exe \"",
+                                            "Read-S3Object ", 
+                                            "-BucketName aws-codedeploy-us-east-1 ", 
+                                            "-Key latest/codedeploy-agent.msi ", 
+                                            "-File ", { "Ref": "InstanceRootFolderParameter" }, "\\startup\\codedeploy-agent.msi\" ",
+                                            "> ", { "Ref": "InstanceRootFolderParameter" }, "\\startup\\02-download-host-agent.log"
+                                        ]
+                                    ]
+								},
+								"waitAfterCompletion": 0
+							},
+							"03-install-host-agent": {
+								"command": {
+									"Fn::Join": ["", [
+                                            { "Ref": "InstanceRootFolderParameter" }, "\\startup\\codedeploy-agent.msi ",
+                                            "/quiet /l ", 
+                                            { "Ref": "InstanceRootFolderParameter" }, "\\startup\\03-install-host-agent.log"
+                                        ]
+                                    ]
+								},
+								"ignoreErrors": "true",
+								"waitAfterCompletion": 0
+							},
+							"04-signal-ready": {
+								"command": {
+									"Fn::Join": ["", [
+                                            "\"C:\\Program Files\\Amazon\\cfn-bootstrap\\cfn-signal\" -e 0 ",
+                                            "--stack ", { "Ref": "AWS::StackName" }, " ",
+                                            "--resource AutoScalingGroup ",
+                                            "--region ", { "Ref" : "AWS::Region" }, " ",
+                                            "> ", { "Ref": "InstanceRootFolderParameter" }, "\\startup\\04-signal-ready.log"
+                                        ]
+                                    ]
+								},
+								"waitAfterCompletion": 0
+							}
+						},
+						"services": {
+							"windows": {
+								"codedeployagent": {
+									"enabled": "true",
+									"ensureRunning": "true",
+									"commands": ["03-install-host-agent"]
+								}
+							}
+						}
+					}
+				}
+			}
+        },
+        "LoadBalancer" : {
+            "Type" : "AWS::ElasticLoadBalancingV2::LoadBalancer",
+            "Properties" : {
+                "Subnets" : { "Ref" : "SubnetIdsParameter" },
+                "SecurityGroups" : [ { "Fn::GetAtt": [ "LoadBalancerSecurityGroup", "GroupId"] } ]
+            }
+        },
+        "LoadBalancerListener": {
+            "Type": "AWS::ElasticLoadBalancingV2::Listener",
+            "Properties": {
+                "DefaultActions": [ {
+                        "Type": "forward",
+                        "TargetGroupArn": { "Ref": "LoadBalancerTargetGroup" }
+                    }
+                ],
+                "LoadBalancerArn": { "Ref": "LoadBalancer" },
+                "Port": 80,
+                "Protocol": "HTTP"
+            }
+        },
+        "LoadBalancerTargetGroup": {
+            "Type": "AWS::ElasticLoadBalancingV2::TargetGroup",
+            "Properties": {
+                "HealthCheckIntervalSeconds" : 30,
+                "HealthCheckPath" : "/api/health/",
+                "HealthCheckTimeoutSeconds" : 5,
+                "HealthyThresholdCount" : 5,
+                "UnhealthyThresholdCount" : 2,
+                "Port": 80,
+                "Protocol": "HTTP",
+                "TargetGroupAttributes": [{
+                    "Key": "deregistration_delay.timeout_seconds",
+                    "Value": "0"
+                }],
+                "VpcId": { "Ref": "VpcIdParameter" }
+            }
+        },
+        "LoadBalancerSecurityGroup": {
+            "Type": "AWS::EC2::SecurityGroup",
+            "Properties": {
+                "GroupDescription": "Enable HTTP:80 access.",
+                "SecurityGroupIngress": [ {
+                        "IpProtocol": "tcp",
+                        "FromPort": "80",
+                        "ToPort": "80",
+                        "CidrIp": "0.0.0.0/0"
+                    }
+                ]
+            }
+        },
+        "IntstanceSecurityGroup": {
+            "Type": "AWS::EC2::SecurityGroup",
+            "Properties": {
+                "GroupDescription": "Enable HTTP:80 and RDP access.",
+                "SecurityGroupIngress": [ {
+                        "IpProtocol": "tcp",
+                        "FromPort": "80",
+                        "ToPort": "80",
+                        "CidrIp": "0.0.0.0/0"
+                    }, {
+                        "IpProtocol": "tcp",
+                        "FromPort": "3389",
+                        "ToPort": "3389",
+                        "CidrIp": "0.0.0.0/0"
+                    }
+                ]
+            }
+        },
+        "InstanceRole": {
+            "Type": "AWS::IAM::Role",
+            "Properties": {
+                "AssumeRolePolicyDocument": {
+                    "Statement": [ {
+                            "Effect": "Allow",
+                            "Principal": { "Service": ["ec2.amazonaws.com"] },
+                            "Action": ["sts:AssumeRole"]
+                        }
+                    ]
+                },
+                "Path": "/"
+            }
+        },
+        "InstanceRolePolicies": {
+            "Type": "AWS::IAM::Policy",
+            "Properties": {
+                "PolicyName": "InstanceRole",
+                "PolicyDocument": {
+                    "Statement": [ {
+                            "Effect": "Allow",
+                            "Action": [
+                                "autoscaling:Describe*",
+                                "autoscaling:EnterStandby", 
+                                "autoscaling:ExitStandby", 
+                                "cloudformation:Describe*", 
+                                "cloudformation:GetTemplate", 
+                                "s3:Get*"
+                            ],
+                            "Resource": "*"
+                        }
+                    ]
+                },
+                "Roles": [ { "Ref": "InstanceRole" } ]
+            }
+        },
+        "InstanceRoleInstanceProfile": {
+            "Type": "AWS::IAM::InstanceProfile",
+            "Properties": {
+                "Path": "/",
+                "Roles": [ { "Ref": "InstanceRole" } ]
+            }
+        },
+        "CodeDeployApplication" : {
+            "Type" : "AWS::CodeDeploy::Application"
+        },
+        "CodeDeployDeploymentGroup" : {
+            "Type" : "AWS::CodeDeploy::DeploymentGroup",
+            "Properties" : {
+                "ApplicationName" : {"Ref" : "CodeDeployApplication"},
+                "Deployment" : { 
+                        "Description" : "Deployment group for autoscaling groups.",
+                        "Revision" : {
+                            "RevisionType":"S3",
+                            "S3Location":{
+                                "Bucket": { "Ref" : "CodeDeployRevisionS3BucketParameter" },
+                                "BundleType": "Zip",
+                                "Key": { "Ref" : "CodeDeployRevisionS3BucketKeyParameter" } 
+                            }
+                        }
+                    },
+                "AutoScalingGroups" : [ { "Ref": "AutoScalingGroup" } ], 
+                "ServiceRoleArn" : { "Fn::GetAtt": [ "CodeDeployRole", "Arn"] } 
+            }
+        },
+        "CodeDeployRole": {
+            "Type": "AWS::IAM::Role",
+            "Properties": {
+                "AssumeRolePolicyDocument": {
+                    "Version": "2008-10-17",
+                    "Statement": [ {
+                            "Sid": "1",
+                            "Effect": "Allow",
+                            "Principal": { "Service": "codedeploy.amazonaws.com" },
+                            "Action": "sts:AssumeRole"
+                        }
+                    ]
+                },
+                "Path": "/"
+            }
+        },
+        "CodeDeployRolePolicies": {
+            "Type": "AWS::IAM::Policy",
+            "Properties": {
+                "PolicyName": "CodeDeployPolicy",
+                "PolicyDocument": {
+                    "Statement": [ {
+                            "Effect": "Allow",
+                            "Resource": ["*"],
+                            "Action": ["ec2:Describe*"]
+                        }, {
+                            "Effect": "Allow",
+                            "Resource": ["*"],
+                            "Action": ["autoscaling:CompleteLifecycleAction", "autoscaling:DeleteLifecycleHook", "autoscaling:DescribeLifecycleHooks", "autoscaling:DescribeAutoScalingGroups", "autoscaling:PutLifecycleHook", "autoscaling:RecordLifecycleActionHeartbeat"]
+                        }, {
+                            "Effect": "Allow",
+                            "Resource": ["*"],
+                            "Action": ["Tag:getResources", "Tag:getTags", "Tag:getTagsForResource", "Tag:getTagsForResourceList"]
+                        }
+                    ]
+                },
+                "Roles": [ { "Ref": "CodeDeployRole" } ]
+            }
+        }
+    }
+}

@@ -1,0 +1,1 @@
+c:\windows\sysnative\WindowsPowerShell\v1.0\powershell.exe C:\ExampleApp\deploy\createWebsite.ps1 -ExecutionPolicy Bypass > C:\ExampleApp\deploy\createWebsite.log

@@ -1,0 +1,12 @@
+version: 0.0
+os: windows
+files:
+  - source: \
+    destination: C:\ExampleApp\deploy\
+hooks:
+  BeforeInstall:
+    - location: .\cleanDeploy.ps1
+      timeout: 900
+  AfterInstall:
+    - location: createWebsite.bat
+      timeout: 900

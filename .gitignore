@@ -1,0 +1,7 @@
+src/.vs
+src/logs/
+src/packages/
+src/webPackage.zip
+src/ExampleApp/bin/
+src/**/*.user
+src/ExampleApp/obj/
